@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>大冶市低空运行总态势 · 指挥中心大屏（演示）</title>
+<meta name="description" content="基于大冶低空平台需求功能清单（总态势主屏）设计的大屏演示页面，数据为演示样例。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23070F14'/%3E%3Cpath d='M6 22 L16 8 L26 22' fill='none' stroke='%235AD6C3' stroke-width='2'/%3E%3Ccircle cx='16' cy='18' r='2.4' fill='%23DFA24B'/%3E%3C/svg%3E">
+<style>
+/* ==================================================================
+   大冶市低空运行总态势大屏 — 单文件版
+   设计取向：航图 / 空管席位（radar phosphor + 飞行数据条），不做卡片墙
+   画布 1920×1080，等比缩放；所有坐标为固定像素布局
+   ================================================================== */
+:root{
+  --bg:#DCEBF9;
+  --panel:rgba(255,255,255,.78);
+  --panel-2:rgba(255,255,255,.92);
+  --line:rgba(46,127,205,.22);
+  --line-2:rgba(46,127,205,.45);
+  --phos:#1E88E5;
+  --phos-soft:rgba(30,136,229,.12);
+  --phos-dim:rgba(30,136,229,.5);
+  --blue:#4FA3E8;
+  --amber:#F0A030;
+  --red:#E5574B;
+  --green:#35A86F;
+  --ink:#1E3A5F;
+  --ink-2:#46628A;
+  --dim:#7E96B4;
+  --mono:"SF Mono","Menlo","Consolas","Liberation Mono",monospace;
+  --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#C9DFF5;overflow:hidden}
+body{font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+
+#viewport{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#stage{position:relative;width:1920px;height:1080px;flex:0 0 auto;transform-origin:center center;background:linear-gradient(180deg,#CFE6F9 0%,#E4F1FC 46%,#D3E7F8 100%)}
+#stage::after{ /* 极轻的暗角，压住四角、托住中心 */
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 90% at 50% 45%,rgba(31,90,160,0) 55%,rgba(31,90,160,.08) 100%);
+}
+
+/* ---------- 顶栏 ---------- */
+.topbar{position:absolute;left:14px;top:14px;width:1892px;height:48px;display:flex;align-items:center;gap:14px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0;background:linear-gradient(90deg,#1D6FD0 0%,#3D9BEF 70%,#5FB8F7 100%);border-radius:6px;padding:7px 14px;box-shadow:0 2px 10px rgba(30,110,210,.32)}
+.brand svg{flex:0 0 auto}
+.brand h1{font-size:23px;font-weight:600;letter-spacing:.045em;white-space:nowrap;color:#fff}
+.brand .sub{font-size:12px;color:rgba(255,255,255,.88);letter-spacing:.06em;padding-left:10px;border-left:1px solid rgba(255,255,255,.35);white-space:nowrap}
+.topbar .spacer{flex:1}
+.links{display:flex;align-items:center;gap:18px;padding-right:6px}
+.link{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-2);white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(53,168,111,.18)}
+.dot.warn{background:var(--amber);box-shadow:0 0 0 3px rgba(240,160,48,.22);animation:blink 1.4s infinite}
+.dot.bad{background:var(--red);box-shadow:0 0 0 3px rgba(229,87,75,.22)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+.modes{display:flex;border:1px solid var(--line-2);background:rgba(255,255,255,.6);border-radius:4px;overflow:hidden}
+.modes button{font-size:11.5px;color:var(--ink-2);padding:5px 10px;letter-spacing:.04em;transition:background .15s,color .15s}
+.modes button+button{border-left:1px solid var(--line)}
+.modes button.on{background:rgba(30,136,229,.16);color:var(--phos)}
+.demoTag{font-size:10.5px;color:#B97613;border:1px solid rgba(240,160,48,.55);background:rgba(240,160,48,.14);padding:2px 7px;letter-spacing:.05em;border-radius:3px}
+.clock{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;min-width:150px}
+.clock .t{font-family:var(--mono);font-size:25px;font-weight:600;letter-spacing:.02em;color:#1E3A5F}
+.clock .d{font-size:11px;color:var(--dim);letter-spacing:.04em}
+
+/* ---------- KPI 飞行数据条 ---------- */
+.kpi{position:absolute;left:14px;top:70px;width:1892px;height:76px;display:flex;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.85),rgba(255,255,255,.55));box-shadow:0 2px 12px rgba(31,90,160,.10)}
+.strip{flex:1;position:relative;padding:7px 18px 6px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer;transition:background .18s}
+.strip+.strip{border-left:1px solid var(--line)}
+.strip:hover{background:rgba(30,136,229,.07)}
+.strip.flash{background:rgba(30,136,229,.16)}
+.strip::before{content:"";position:absolute;left:0;top:9px;bottom:8px;width:2px;background:var(--phos);opacity:.7;transition:opacity .18s,box-shadow .18s}
+.strip.flash::before{opacity:1;box-shadow:0 0 10px rgba(30,136,229,.55)}
+.strip.attention::before{background:var(--amber);opacity:.9}
+.strip .lab{display:flex;align-items:baseline;justify-content:space-between;font-size:11.5px;color:var(--ink-2);letter-spacing:.04em;line-height:1.2}
+.strip .lab em{font-style:normal;font-size:10px;color:var(--dim)}
+.strip .val{display:flex;align-items:baseline;gap:6px;line-height:1}
+.strip .val b{font-family:var(--mono);font-size:32px;font-weight:600;line-height:1;color:#16355C;letter-spacing:.01em}
+.strip .val i{font-style:normal;font-size:11.5px;color:var(--ink-2)}
+.strip .foot{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:10.5px;color:var(--dim);letter-spacing:.02em;line-height:1.2}
+.strip .foot span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.strip .delta{font-family:var(--mono);font-size:10.5px;flex:none}
+.delta.up{color:var(--phos)} .delta.down{color:var(--amber)} .delta.flat{color:var(--dim)}
+.spark{display:flex;align-items:flex-end;gap:2px;height:16px}
+.spark span{width:3px;background:var(--phos);opacity:.55}
+.spark span:last-child{opacity:1}
+
+/* ---------- 主区 ---------- */
+.main{position:absolute;left:14px;top:154px;width:1892px;height:850px;display:flex;gap:12px}
+.col{width:368px;height:850px;display:flex;flex-direction:column;gap:10px;flex:0 0 auto}
+.panel{position:relative;border:1px solid var(--line);background:var(--panel);padding:0;overflow:hidden;min-height:0;border-radius:8px;box-shadow:0 2px 14px rgba(31,90,160,.10);backdrop-filter:blur(3px)}
+.panel::before{content:"";position:absolute;left:0;top:0;right:0;height:2px;background:linear-gradient(90deg,var(--phos) 0%,rgba(30,136,229,0) 60%);border-radius:8px 8px 0 0}
+.panel .ph{height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line)}
+.panel .ph h2{font-size:13px;font-weight:600;letter-spacing:.07em;color:#1E3A5F}
+.panel .ph .tag{margin-left:auto;font-size:10.5px;color:var(--dim);letter-spacing:.03em}
+.panel .ph .tick{width:5px;height:5px;background:var(--phos);transform:rotate(45deg);flex:0 0 auto}
+.panel .pb{position:absolute;left:0;right:0;top:34px;bottom:0;padding:10px 12px}
+.mapwrap{flex:1 1 auto;position:relative;border:1px solid var(--line);background:#050C11;overflow:hidden;min-width:0}
+.mapwrap canvas{display:block;width:100%;height:100%;cursor:grab}
+.mapwrap canvas.dragging{cursor:grabbing}
+
+/* ---------- 地图叠层 ---------- */
+.maphead{position:absolute;left:14px;top:12px;pointer-events:none;display:flex;flex-direction:column;gap:4px}
+.maphead h2{font-size:14px;font-weight:600;letter-spacing:.1em;color:#E3F0F1;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.maphead p{font-size:11px;color:var(--ink-2);letter-spacing:.04em}
+.maphead p em{font-style:normal;color:var(--dim)}
+
+.layers{position:absolute;right:12px;top:12px;width:196px;border:1px solid var(--line-2);background:rgba(255,255,255,.92);padding:8px 10px;border-radius:6px;box-shadow:0 2px 10px rgba(31,90,160,.12)}
+.layers .lt{display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--dim);letter-spacing:.08em;margin-bottom:7px}
+.layers .lt b{font-weight:500;color:var(--ink-2);letter-spacing:.05em}
+.layers .grid2{display:grid;grid-template-columns:1fr 1fr;gap:5px 8px}
+.lyr{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-2);cursor:pointer;padding:2px 0;user-select:none}
+.lyr input{appearance:none;width:11px;height:11px;border:1px solid var(--line-2);position:relative;cursor:pointer;flex:0 0 auto}
+.lyr input:checked{background:var(--phos);border-color:var(--phos)}
+.lyr input:checked::after{content:"";position:absolute;left:2px;top:2px;right:2px;bottom:2px;background:#1E88E5}
+.lyr:hover{color:var(--ink)}
+.lyr.off{color:#546C76}
+
+.bookmarks{position:absolute;right:12px;bottom:46px;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
+.bm{font-size:11.5px;color:var(--ink-2);border:1px solid var(--line-2);background:rgba(255,255,255,.85);padding:5px 10px;letter-spacing:.04em;transition:.15s;border-radius:4px}
+.bm:hover{color:var(--phos);border-color:var(--phos-dim)}
+.bm.on{color:#fff;background:var(--phos);border-color:var(--phos);font-weight:600}
+
+.legend{position:absolute;left:14px;bottom:14px;display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--ink-2);pointer-events:none}
+.legend .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.legend .it{display:flex;align-items:center;gap:5px}
+.sw{width:14px;height:8px;border:1px solid transparent}
+.sw.forbid{background:rgba(192,69,58,.25);border-color:rgba(217,88,74,.8)}
+.sw.limit{background:rgba(201,154,69,.22);border-color:rgba(223,162,75,.8)}
+.sw.free{background:rgba(62,143,114,.22);border-color:rgba(79,191,139,.7)}
+.ln{width:16px;height:0;border-top:2px solid var(--phos)}
+.ln.med{border-color:var(--phos)} .ln.com{border-color:var(--blue)} .ln.see{border-color:var(--amber)} .ln.ind{border-color:#D08B5B}
+.scalebar{display:flex;align-items:flex-end;gap:6px;color:var(--dim);font-family:var(--mono);font-size:10px}
+.scalebar .bar{height:5px;border-left:1px solid var(--dim);border-right:1px solid var(--dim);border-bottom:1px solid var(--dim);width:78px}
+
+.hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font-size:10.5px;color:#4E6771;letter-spacing:.05em;pointer-events:none;white-space:nowrap}
+
+/* ---------- 底部滚动 ---------- */
+.ticker{position:absolute;left:14px;top:1014px;width:1892px;height:52px;display:flex;border:1px solid var(--line);background:var(--panel);border-radius:8px;box-shadow:0 2px 12px rgba(31,90,160,.10)}
+.ticker .tk-left{flex:1 1 auto;position:relative;overflow:hidden;display:flex;align-items:center;min-width:0}
+.tk-cap{flex:0 0 auto;height:100%;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;color:#B97613;letter-spacing:.06em;border-right:1px solid var(--line);background:rgba(240,160,48,.12)}
+.tk-cap .dot{width:6px;height:6px;background:var(--amber);box-shadow:none}
+.tk-view{flex:1;overflow:hidden;position:relative;height:100%}
+.tk-track{display:flex;align-items:center;gap:0;white-space:nowrap;height:100%;animation:slide 52s linear infinite;will-change:transform}
+.tk-track:hover{animation-play-state:paused}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.tk-item{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);padding:0 14px;border-right:1px solid rgba(122,170,178,.10)}
+.tk-item b{font-family:var(--mono);color:var(--dim);font-weight:400;font-size:11px}
+.tk-item .lv{font-size:10px;padding:1px 5px;border:1px solid currentColor}
+.tk-item.high{color:#E5574B} .tk-item.mid{color:#C77A12} .tk-item.low{color:var(--ink-2)}
+.tk-right{flex:0 0 476px;display:flex;align-items:center;gap:18px;padding:0 14px;border-left:1px solid var(--line);background:rgba(30,136,229,.06)}
+.tk-right .cell{display:flex;flex-direction:column;gap:2px}
+.tk-right .cell span{font-size:10px;color:var(--dim);letter-spacing:.04em}
+.tk-right .cell b{font-family:var(--mono);font-size:13px;font-weight:600;color:#1E3A5F}
+.tk-right .cell b.ok{color:var(--phos)}
+
+/* ---------- 浮层：详情卡 ---------- */
+.detail{position:absolute;width:306px;border:1px solid var(--line-2);background:#FFFFFF;padding:0;display:none;z-index:12;border-radius:8px;box-shadow:0 12px 40px rgba(31,90,160,.28)}
+.detail .dh{display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px;letter-spacing:.05em}
+.detail .dh .who{font-family:var(--mono);font-size:13px;color:#1E3A5F}
+.detail .dh .close{margin-left:auto;color:var(--dim);font-size:14px;line-height:1;padding:2px 4px}
+.detail .dh .close:hover{color:#fff}
+.detail .db{padding:10px 12px;display:grid;grid-template-columns:76px 1fr;row-gap:7px;font-size:11.5px}
+.detail .db dt{color:var(--dim);letter-spacing:.03em}
+.detail .db dd{color:var(--ink);font-family:var(--mono);font-size:11.5px}
+.detail .db dd.txt{font-family:var(--sans)}
+.detail .df{border-top:1px solid var(--line);padding:8px 12px;display:flex;gap:8px}
+.detail .df button{flex:1;font-size:11px;padding:5px 0;border:1px solid var(--line-2);color:var(--ink-2);letter-spacing:.05em}
+.detail .df button:hover{border-color:var(--phos-dim);color:var(--phos)}
+
+/* ---------- 浮层：在线率下钻 ---------- */
+.drill{position:absolute;width:330px;border:1px solid var(--line-2);background:#FFFFFF;display:none;z-index:13;border-radius:8px;box-shadow:0 12px 40px rgba(31,90,160,.28)}
+.drill .dh{height:34px;display:flex;align-items:center;padding:0 10px;border-bottom:1px solid var(--line);font-size:12px;letter-spacing:.04em}
+.drill .dh .close{margin-left:auto;color:var(--dim)}
+.drill .db{padding:8px 10px;font-size:11.5px;color:var(--ink-2);line-height:1.7}
+.drill .db .row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed rgba(122,170,178,.12)}
+.drill .db .row b{font-family:var(--mono);color:var(--ink);font-weight:500}
+.drill .db .note{margin-top:8px;color:var(--dim);font-size:10.5px}
+
+/* ---------- 浮层：语音助手 ---------- */
+.assistant{position:absolute;right:14px;top:68px;width:368px;height:588px;border:1px solid var(--line-2);background:#FFFFFF;display:none;z-index:14;flex-direction:column;border-radius:8px;box-shadow:0 16px 50px rgba(31,90,160,.28)}
+.assistant .ah{height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);background:rgba(30,136,229,.08)}
+.assistant .ah .wave{display:flex;align-items:center;gap:2px;height:14px}
+.assistant .ah .wave i{display:block;width:2px;background:var(--phos);height:4px;animation:wv 1s infinite ease-in-out}
+.assistant .ah .wave i:nth-child(2){animation-delay:.12s}.assistant .ah .wave i:nth-child(3){animation-delay:.24s}
+.assistant .ah .wave i:nth-child(4){animation-delay:.36s}.assistant .ah .wave i:nth-child(5){animation-delay:.48s}
+@keyframes wv{0%,100%{height:4px;opacity:.5}50%{height:13px;opacity:1}}
+.assistant .ah h3{font-size:12.5px;font-weight:600;letter-spacing:.06em}
+.assistant .ah .ah-tag{font-size:10px;color:var(--dim);border:1px solid var(--line-2);padding:1px 5px}
+.assistant .ah .close{margin-left:auto;color:var(--dim);font-size:15px;padding:2px 4px}
+.assistant .ah .close:hover{color:#fff}
+.amsgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;scrollbar-width:thin}
+.msg{max-width:88%;font-size:12px;line-height:1.72;padding:7px 10px;border:1px solid var(--line)}
+.msg.user{align-self:flex-end;background:rgba(30,136,229,.12);border-color:rgba(30,136,229,.35);color:#16355C}
+.msg.bot{align-self:flex-start;background:rgba(30,136,229,.06);color:var(--ink-2)}
+.msg.bot strong{color:var(--phos);font-family:var(--mono);font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 8px}
+.chip{font-size:11px;color:var(--ink-2);border:1px solid var(--line-2);padding:4px 8px;letter-spacing:.02em}
+.chip:hover{color:var(--phos);border-color:var(--phos-dim);background:rgba(30,136,229,.08)}
+.ainput{display:flex;gap:6px;padding:8px 12px 10px;border-top:1px solid var(--line)}
+.ainput input{flex:1;min-width:0;background:#F4F9FE;border:1px solid var(--line-2);color:var(--ink);font-family:var(--sans);font-size:12px;padding:7px 9px;outline:none;border-radius:4px}
+.ainput input:focus{border-color:var(--phos-dim)}
+.ainput .send,.ainput .mic{width:34px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;color:var(--ink-2)}
+.ainput .send:hover,.ainput .mic:hover{color:var(--phos);border-color:var(--phos-dim)}
+.ainput .mic.listening{border-color:var(--red);color:var(--red);animation:pulseBtn 1s infinite}
+@keyframes pulseBtn{0%,100%{box-shadow:0 0 0 0 rgba(217,88,74,.35)}50%{box-shadow:0 0 0 6px rgba(217,88,74,0)}}
+.afoot{display:flex;align-items:center;justify-content:space-between;padding:0 12px 8px;font-size:10px;color:var(--dim)}
+.afoot label{display:flex;align-items:center;gap:5px;cursor:pointer}
+.afoot input{accent-color:var(--phos)}
+
+/* ---------- 演示控制条 ---------- */
+.demoBar{position:absolute;left:50%;top:952px;transform:translateX(-50%) translateY(10px);width:720px;height:44px;border:1px solid var(--line-2);background:rgba(255,255,255,.96);display:none;align-items:center;gap:10px;padding:0 12px;z-index:15;opacity:0;transition:opacity .25s,transform .25s;box-shadow:0 10px 30px rgba(31,90,160,.25);border-radius:8px}
+.demoBar.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
+.demoBar button{width:26px;height:26px;border:1px solid var(--line-2);display:flex;align-items:center;justify-content:center;color:var(--ink-2)}
+.demoBar button:hover{color:var(--phos);border-color:var(--phos-dim)}
+.demoBar .stepname{font-size:11.5px;color:var(--ink);letter-spacing:.03em;min-width:150px}
+.demoBar .stepname em{font-style:normal;font-family:var(--mono);color:var(--phos);margin-right:8px}
+.demoBar .segs{flex:1;display:flex;gap:4px}
+.demoBar .seg{height:4px;flex:1;background:rgba(122,170,178,.2);cursor:pointer;transition:background .2s}
+.demoBar .seg.done{background:var(--phos-dim)}
+.demoBar .seg.now{background:var(--phos)}
+.demoBar .timer{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:36px;text-align:right}
+
+/* ---------- 提示 ---------- */
+.toast{position:absolute;left:50%;top:86px;transform:translateX(-50%) translateY(-8px);background:rgba(255,255,255,.96);border:1px solid var(--line-2);border-left:2px solid var(--phos);padding:8px 16px;font-size:12px;color:var(--ink);letter-spacing:.03em;opacity:0;transition:.2s;z-index:20;pointer-events:none;border-radius:6px;box-shadow:0 6px 20px rgba(31,90,160,.18)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* 助手入口（位于顶栏，避免遮挡内容） */
+.aiBtn{height:30px;padding:0 10px;border:1px solid var(--line-2);background:rgba(255,255,255,.8);display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--ink-2);letter-spacing:.04em;border-radius:4px}
+.aiBtn:hover{color:var(--phos);border-color:var(--phos-dim);background:rgba(30,136,229,.08)}
+.aiBtn .dot{width:6px;height:6px;background:var(--phos);box-shadow:none}
+body.demo .legend,body.demo .hint{display:none}
+#layerAll{cursor:pointer;color:var(--ink-2)}
+#layerAll:hover{color:#fff}
+.fleg{cursor:pointer;transition:opacity .15s}
+.fleg:hover{opacity:.75}
+.arow.high{position:relative}
+.arow.high::after{content:"";position:absolute;left:0;top:0;width:2px;height:100%;background:var(--red);animation:blink 1.6s infinite}
+
+/* 汇报模式：收敛装饰 */
+body.report .hint,body.report .spark{display:none}
+body.report .layers{display:none}
+body.report .panel::before{opacity:.4}
+body.report .kpi .strip .val b{font-size:38px}
+body.report .strip{padding:6px 18px 5px}
+body.report .strip .lab{font-size:10.5px}
+body.report .strip .foot{font-size:9.5px}
+body.report .strip::before{opacity:.85}
+body.report .ticker{opacity:.92}
+
+/* 焦点可见 */
+button:focus-visible,.lyr:focus-visible{outline:2px solid var(--phos);outline-offset:2px}
+input:focus-visible{outline:none}
+</style>
+</head>
+<body>
+<div id="viewport">
+  <div id="stage">
+
+    <!-- ============ 顶部标题栏 ============ -->
+    <header class="topbar">
+      <div class="brand">
+        <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 18 L12 4 L21 18" fill="none" stroke="#5AD6C3" stroke-width="1.4"/>
+          <path d="M6.6 18 L12 9.4 L17.4 18" fill="none" stroke="#5AD6C3" stroke-width="1.4" opacity=".5"/>
+          <circle cx="12" cy="15" r="1.8" fill="#DFA24B"/>
+        </svg>
+        <h1>大冶市低空经济综合服务平台</h1>
+        <span class="sub">低空运行 · 总态势</span>
+      </div>
+      <div class="spacer"></div>
+      <div class="links" id="linkBox"></div>
+      <button class="aiBtn" id="aiBtn"><span class="dot"></span>语音助手</button>
+      <span class="demoTag">演示数据 · 非生产</span>
+      <div class="clock">
+        <span class="t" id="clockTime">--:--:--</span>
+        <span class="d" id="clockDate">----年--月--日</span>
+      </div>
+    </header>
+
+    <!-- ============ KPI 飞行数据条 ============ -->
+    <section class="kpi" id="kpiRow"></section>
+
+    <!-- ============ 主区 ============ -->
+    <div class="main">
+      <!-- 左栏 -->
+      <aside class="col">
+        <div class="panel" style="height:262px">
+          <div class="ph"><span class="tick"></span><h2>机队状态</h2><span class="tag">实时 · 设备状态</span></div>
+          <div class="pb" style="display:flex;gap:10px">
+            <div id="fleetChart" style="width:172px;height:100%"></div>
+            <div class="fleet-legend" id="fleetLegend" style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:7px"></div>
+          </div>
+        </div>
+        <div class="panel" style="height:168px">
+          <div class="ph"><span class="tick"></span><h2>设备健康</h2><span class="tag">准实时 · 30s</span></div>
+          <div class="pb" id="healthBody"></div>
+        </div>
+        <div class="panel" style="height:400px">
+          <div class="ph"><span class="tick"></span><h2>设备告警</h2><span class="tag" id="alertCount">最近 5 条</span></div>
+          <div class="pb" style="padding:0" id="alertList"></div>
+        </div>
+      </aside>
+
+      <!-- 中央地图 -->
+      <section class="mapwrap" id="mapWrap">
+        <canvas id="mapCanvas"></canvas>
+        <div class="maphead">
+          <h2>低空运行 GIS 一张图</h2>
+          <p>大冶市域 · 空域网格 / 航线 / 起降场 / 实时目标 <em>底图为行政边界示意，未接瓦片服务</em></p>
+        </div>
+        <div class="layers">
+          <div class="lt"><b>图层</b><span id="layerAll">全开 / 全关</span></div>
+          <div class="grid2" id="layerBox"></div>
+        </div>
+        <div class="bookmarks" id="bookmarkBox">
+          <button class="bm on" data-book="all">全域总览</button>
+          <button class="bm" data-book="city">城区放大</button>
+        </div>
+        <div class="legend">
+          <div class="row">
+            <span class="it"><i class="sw forbid"></i>禁飞</span>
+            <span class="it"><i class="sw limit"></i>限飞</span>
+            <span class="it"><i class="sw free"></i>适飞</span>
+            <span class="it" style="color:var(--dim)">空域面积 1.2% / 2.7% / 96.1%</span>
+          </div>
+          <div class="row">
+            <span class="it"><i class="ln med"></i>医疗</span>
+            <span class="it"><i class="ln com"></i>商业</span>
+            <span class="it"><i class="ln see"></i>景区</span>
+            <span class="it"><i class="ln ind"></i>工业</span>
+            <span class="it"><i class="ln" style="border-top-style:dashed;border-color:#C9DDE0"></i>干线货运</span>
+          </div>
+          <div class="row sys">
+            <span class="it" style="color:var(--dim)">起降场：二级枢纽 / 三级（正常·空闲·告警）</span>
+          </div>
+          <div class="row">
+            <span class="scalebar"><span id="scaleLabel">5 km</span><i class="bar" id="scaleBar"></i></span>
+            <span class="it" style="color:var(--dim)">N ↑</span>
+          </div>
+        </div>
+        <div class="hint">拖动平移 · 滚轮缩放 · 点击目标 / 起降场 / 告警查看详情</div>
+      </section>
+
+      <!-- 右栏 -->
+      <aside class="col">
+        <div class="panel" style="height:286px">
+          <div class="ph"><span class="tick"></span><h2>今日飞行架次</h2><span class="tag">统计 · 10min</span></div>
+          <div class="pb" style="padding:6px 8px 0 4px;position:relative">
+            <div id="trendChart" style="width:100%;height:100%"></div>
+          </div>
+        </div>
+        <div class="panel" style="height:232px">
+          <div class="ph"><span class="tick"></span><h2>任务类型构成</h2><span class="tag">今日 38 架次</span></div>
+          <div class="pb" id="taskBody" style="padding:12px 12px 8px"></div>
+        </div>
+        <div class="panel" style="height:312px">
+          <div class="ph"><span class="tick"></span><h2>空域与航线运行</h2><span class="tag">市级平台同步</span></div>
+          <div class="pb" id="airBody" style="padding:12px"></div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ============ 底部滚动 ============ -->
+    <footer class="ticker">
+      <div class="tk-left">
+        <div class="tk-cap"><span class="dot"></span>事件流</div>
+        <div class="tk-view"><div class="tk-track" id="tickerTrack"></div></div>
+      </div>
+      <div class="tk-right" id="platformBox"></div>
+    </footer>
+
+    <!-- ============ 浮层 ============ -->
+    <div class="detail" id="detail"></div>
+    <div class="drill" id="drill"></div>
+
+    <div class="assistant" id="assistant">
+      <div class="ah">
+        <span class="wave"><i></i><i></i><i></i><i></i><i></i></span>
+        <h3>小冶 · 低空运行助手</h3>
+        <span class="ah-tag">交互模拟</span>
+        <button class="close" id="aiClose" aria-label="关闭助手">×</button>
+      </div>
+      <div class="amsgs" id="aiMsgs"></div>
+      <div class="chips" id="aiChips"></div>
+      <div class="ainput">
+        <input id="aiInput" type="text" placeholder="试试：今天飞了多少架次" aria-label="输入指令">
+        <button class="mic" id="aiMic" aria-label="语音输入（模拟）">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <button class="send" id="aiSend" aria-label="发送">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+      <div class="afoot">
+        <label><input type="checkbox" id="ttsToggle">语音播报（浏览器合成，默认关）</label>
+        <span>延迟目标 ≤ 2s</span>
+      </div>
+    </div>
+
+    <div class="demoBar" id="demoBar">
+      <button id="demoPrev" aria-label="上一幕">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h3v14H6zM20 5v14L9 12z"/></svg>
+      </button>
+      <button id="demoPlay" aria-label="播放/暂停">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg>
+      </button>
+      <button id="demoNext" aria-label="下一幕">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M15 5h3v14h-3zM4 5v14l11-7z"/></svg>
+      </button>
+      <div class="stepname"><em id="demoIdx">01</em><span id="demoName">待机总览</span></div>
+      <div class="segs" id="demoSegs"></div>
+      <div class="timer" id="demoTimer">0:00</div>
+      <button id="demoReset" aria-label="复位" style="width:auto;padding:0 8px;font-size:11px">复位</button>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+</div>
+
+<script id="geoData">/*__GEO__*/</script>
+<script id="echartsLib">/*__ECHARTS__*/</script>
+<script id="appCode">
+/*__APP__*/
+</script>
+</body>
+</html>
